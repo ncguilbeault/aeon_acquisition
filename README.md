@@ -6,17 +6,44 @@ The Project Aeon acquisition repository contains the set of standardized data ac
 
 ### Schema classes
 
-1. Install [`bonsai.sgen`](https://www.nuget.org/packages/Bonsai.Sgen) by running the `restore` command:
+Configuration and data models are declared as [pydantic](https://docs.pydantic.dev/) models under `src/swc/aeon/schema`, and the C# classes used by the Bonsai workflows are generated from them by [`bonsai.sgen`](https://www.nuget.org/packages/Bonsai.Sgen).
+
+1. Install `bonsai.sgen` by running the `restore` command:
 
     ```
     dotnet tool restore
     ```
 
-2. Run the command to regenerate each schema class, e.g. for `ChannelMap.json`:
+2. Regenerate every schema class:
 
     ```
-    dotnet bonsai.sgen --namespace Aeon.Environment --schema ChannelMap.json
+    uv run aeon-generate
     ```
+
+This writes the combined JSON schema to `schemas/aeon.json` and runs `bonsai.sgen` once per C# namespace, writing `src/<Namespace>/<Namespace>.Generated.cs`. Pass `--dry-run` to write the schema and print the generation commands without running them.
+
+Each model carries the fully qualified name of the C# type it maps to, in the `x-sgen-typename` schema extension. A generation pass emits only the types belonging to its target namespace and references the rest as external types, so a model shared between namespaces is generated once and referenced from the other C# projects. Referencing a model across namespaces requires the consuming project to have a `ProjectReference` to the project which declares it.
+
+A model is generated into the namespace of the module declaring it. Modules set this through the module-level `SGEN_NAMESPACE`, which must match the name of the project folder under `src`. A module generating types into more than one project declares each namespace it uses, and the models which do not belong to the first declare their own:
+
+```python
+SGEN_NAMESPACE = ["Aeon.Tether.Commutator", "Aeon.Tether.MotorController"]
+
+
+class MotorController(BaseSchema, sgen_namespace="Aeon.Tether.MotorController"):
+    ...
+```
+
+A namespace is generated only if a module declares it. Any other namespace belongs to a C# package outside this repository, and its types are referenced but never generated, so no project is created for them. Models describing such a type declare the namespace on the class itself:
+
+```python
+class NeuropixelsV2ProbeConfiguration(BaseSchema, sgen_namespace="OpenEphys.Onix1"):
+    ...
+```
+
+The C# project consuming these types is responsible for referencing the package which defines them, through a `PackageReference`.
+
+Enumerations derive from `SchemaEnum`, and declare a namespace of their own through the `__sgen_namespace__` class attribute. The name of each generated C# member comes from the value of the enumeration member rather than its name.
 
 ## Deployment Instructions
 
